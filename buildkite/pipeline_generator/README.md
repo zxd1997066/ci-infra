@@ -118,6 +118,20 @@ The Secret is optional, so missing credentials do not prevent jobs from running.
 Provision it in a Buildkite job namespace with
 `infra-k8s/create-buildkite-analytics-secret.sh` to enable test result uploads.
 
+## Intel K8s workspace transition
+
+`intel_gpu_k8s` supports XPU images with source at `/workspace/vllm` or
+`/vllm-workspace`. During the transition, the init container copies the source
+into the agent-stack-k8s workspace volume at `/workspace/vllm`, keeping existing
+jobs compatible with either image layout. Images without either source directory
+fail initialization. The copy merges the source contents directly into the
+destination even when the working directory already exists.
+
+The default working directory remains `/workspace/vllm`. Jobs using a new-layout
+image can explicitly set `working_dir: /vllm-workspace` to use its source directly.
+Do not use that working directory with old-layout images. Once all jobs and images
+have migrated, the compatibility copy and legacy working directory can be removed.
+
 ## OpenTelemetry command and test timing
 
 The generator automatically instruments every standard NVIDIA and CPU job in

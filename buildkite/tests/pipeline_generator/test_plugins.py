@@ -1,3 +1,7 @@
+import shlex
+import shutil
+import subprocess
+
 import pytest
 
 from plugin import docker_plugin, k8s_plugin
@@ -6,6 +10,69 @@ from plugin.analytics import (
     BUILDKITE_ANALYTICS_TOKEN,
 )
 from step import Step
+
+
+@pytest.mark.parametrize("layout", ["legacy", "new", "missing", "copy-failure"])
+@pytest.mark.parametrize("destination_exists", [False, True])
+def test_intel_init_container_supports_both_workspace_layouts(
+    tmp_path, layout, destination_exists
+):
+    """Keep legacy jobs runnable while XPU images move to /vllm-workspace."""
+    shell = shutil.which("sh")
+    if shell is None:
+        pytest.skip("requires a POSIX shell")
+
+    plugin = k8s_plugin.get_k8s_plugin(
+        Step(label="Intel workspace", device="intel_gpu_k8s"),
+        "example/image:commit",
+    )
+    pod = plugin["kubernetes"]["podSpec"]
+    init = pod["initContainers"][0]
+    container = pod["containers"][0]
+    assert init["image"] == container["image"] == "example/image:commit-xpu"
+    assert container["workingDir"] == "/workspace/vllm"
+    assert init["volumeMounts"] == [
+        {"name": "workspace", "mountPath": "/mnt/workspace"}
+    ]
+
+    legacy = tmp_path / "legacy"
+    new = tmp_path / "new"
+    destination = tmp_path / "mounted-workspace" / "vllm"
+    destination.parent.mkdir()
+    if layout != "missing":
+        source = legacy if layout == "legacy" else new
+        source.mkdir()
+        (source / ".source-marker").write_text(layout)
+        (source / "tests").mkdir()
+    if layout == "copy-failure":
+        destination.write_text("not a directory")
+    elif destination_exists:
+        destination.mkdir()
+
+    # Redirect the container paths to an isolated filesystem for execution.
+    script = init["command"][2]
+    for path, replacement in (
+        ("/mnt/workspace/vllm", destination),
+        ("/workspace/vllm", legacy),
+        ("/vllm-workspace", new),
+    ):
+        script = script.replace(path, shlex.quote(replacement.as_posix()))
+    result = subprocess.run(
+        [shell, *init["command"][1:2], script],
+        capture_output=True,
+        text=True,
+    )
+
+    if layout in ("legacy", "new"):
+        assert result.returncode == 0, result.stderr
+        assert (destination / ".source-marker").read_text() == layout
+        assert (source / ".source-marker").read_text() == layout
+        assert (destination / "tests").is_dir()
+    else:
+        assert result.returncode != 0
+        assert result.stderr
+        if layout == "missing":
+            assert "vLLM source directory not found" in result.stderr
 
 
 @pytest.mark.parametrize(

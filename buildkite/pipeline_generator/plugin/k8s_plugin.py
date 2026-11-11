@@ -320,7 +320,19 @@ intel_gpu_k8s_plugin_template = {
                 {
                     "name": "copy-vllm-src",
                     "image": "",
-                    "command": ["cp", "-a", "/workspace/vllm", "/mnt/workspace/"],
+                    "command": [
+                        "/bin/sh",
+                        "-ec",
+                        "if [ -d /workspace/vllm ]; then\n"
+                        "    cp -a /workspace/vllm/. /mnt/workspace/vllm/\n"
+                        "elif [ -d /vllm-workspace ]; then\n"
+                        "    cp -a /vllm-workspace/. /mnt/workspace/vllm/\n"
+                        "else\n"
+                        '    echo "vLLM source directory not found" >&2\n'
+                        "    exit 1\n"
+                        "fi",
+                    ],
+                    # The workspace volume is injected by agent-stack-k8s.
                     "volumeMounts": [
                         {"name": "workspace", "mountPath": "/mnt/workspace"},
                     ],
