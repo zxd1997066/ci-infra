@@ -380,7 +380,7 @@ intel_gpu_k8s_plugin_template = {
                 {
                     "name": "hf-cache",
                     "hostPath": {
-                        "path": "/var/lib/hf-cache",
+                        "path": "/data/huggingface",
                         "type": "DirectoryOrCreate",
                     },
                 },
